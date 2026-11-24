@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f172a">
+<title>מנהל פאצ' פאנלים – Data Center</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+body{font-family:'Segoe UI',Arial,sans-serif;background:#0f172a}
+.ltr{direction:ltr;unicode-bidi:isolate}
+.led{box-shadow:0 0 6px #22c55e}
+html{-webkit-text-size-adjust:100%}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+button,.port{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+input,select,textarea{font-size:16px!important}
+@media(max-width:1023px){header.sticky{position:static}}
+</style>
+</head>
+<body class="text-slate-100">
+<div id="root"></div>
+<script>
+const { useState, useEffect, useMemo, useRef } = React, ROWS = { A: 12, B: 12, C: 12, D: 4, E: 2 }, rid = (r, i) => r + String(i).padStart(2, "0"), ALL = Object.entries(ROWS).flatMap(([r, n]) => Array.from({ length: n }, (_, i) => rid(r, i + 1))), TL = { copper: "נחושת", fiber: "סיבים", cassette: "קסטות" }, TN = { copper: "פאץ' פאנל נחושת", fiber: "פאנל גישורי סיבים אופטיים", cassette: "מארז קסטות סיבים" }, total = (p) => p.type === "cassette" ? p.cols.length * p.rows.length * p.per : p.ports, conn = (p) => Object.values(p.d).filter((x) => x.on).length, pct = (a, b) => b ? Math.round(a / b * 100) : 0, uid = () => Math.random().toString(36).slice(2, 9), KEY = "dc-patch-manager-v1";
+function sample() {
+  const d1 = {};
+  for (let i = 1; i <= 18; i++) d1[i] = { on: !0, note: i === 14 ? "SW-01 Port 14" : i <= 6 ? "SW-01 Port " + i : "" };
+  const d2 = {};
+  [1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => d2[i] = { on: !0, note: i <= 2 ? "CORE-01 Eth1/" + i : "" });
+  const d3 = {};
+  return ["0-0-1", "0-0-2", "0-0-3", "1-1-1", "2-3-12"].forEach((k) => d3[k] = { on: !0, note: "ODF-02 " + k }), { A01: { h: 42, panels: [
+    { id: uid(), name: "PP-A01-01", s: 42, h: 1, type: "copper", ports: 24, d: d1 },
+    { id: uid(), name: "FP-A01-01", s: 40, h: 1, type: "fiber", ports: 24, d: d2 },
+    { id: uid(), name: "CS-A01-01", s: 38, h: 3, type: "cassette", cols: ["A", "B", "C"], rows: ["1", "2", "3", "4"], per: 12, d: d3 }
+  ] } };
+}
+function load() {
+  try {
+    const x = JSON.parse(localStorage.getItem(KEY));
+    if (x && x.racks) {
+      const a = x.racks.A01;
+      if (a && !x.cleaned) {
+        const names = ["PP-A01-01", "FP-A01-01", "CS-A01-01"];
+        a.panels = a.panels.filter((p) => !names.includes(p.name));
+      }
+      return x.cleaned = !0, x;
+    }
+  } catch {
+  }
+  return { racks: {} };
+}
+const Ic = ({ n, c = "w-4 h-4" }) => /* @__PURE__ */ React.createElement("svg", { className: c, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, /* @__PURE__ */ React.createElement("path", { d: { plus: "M12 5v14M5 12h14", dl: "M12 3v12m0 0l-4-4m4 4l4-4M4 21h16", ul: "M12 21V9m0 0l-4 4m4-4l4 4M4 3h16", tr: "M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14", ed: "M4 20h4L19 9l-4-4L4 16z", x: "M6 6l12 12M18 6L6 18" }[n] }));
+function Port({ k, label, d, onToggle, onEdit, small, editMode }) {
+  const x = d[k] || {}, tm = useRef(), fired = useRef(!1), start = () => {
+    fired.current = !1, tm.current = setTimeout(() => {
+      fired.current = !0, onEdit();
+    }, 500);
+  }, stop = () => clearTimeout(tm.current);
+  return /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      title: (label || "") + (x.note ? " → " + x.note : ""),
+      onClick: () => {
+        if (fired.current) {
+          fired.current = !1;
+          return;
+        }
+        editMode ? onEdit() : onToggle();
+      },
+      onContextMenu: (e) => {
+        e.preventDefault(), onEdit();
+      },
+      onTouchStart: start,
+      onTouchEnd: stop,
+      onTouchMove: stop,
+      onTouchCancel: stop,
+      className: `port relative ltr ${small ? "w-7 h-7 text-[9px]" : "w-8 h-9 text-[10px]"} rounded-sm border flex items-center justify-center font-mono transition ${x.on ? "bg-green-500/90 border-green-300 text-black led" : "bg-slate-900 border-slate-600 text-slate-500 hover:border-slate-400"}`
+    },
+    label,
+    x.note && /* @__PURE__ */ React.createElement("span", { className: "absolute -top-1 -right-1 w-2 h-2 rounded-full bg-sky-400" })
+  );
+}
+function Grid({ n, perRow, gap, children }) {
+  const items = React.Children.toArray(children), rows = [];
+  for (let i = 0; i < items.length; i += perRow) rows.push(items.slice(i, i + perRow));
+  return /* @__PURE__ */ React.createElement("div", { className: "ltr inline-flex flex-col gap-1.5" }, rows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "flex gap-0.5" }, Array.from({ length: Math.ceil(r.length / gap) }, (_, b) => /* @__PURE__ */ React.createElement("div", { key: b, className: "flex gap-0.5 me-2" }, r.slice(b * gap, b * gap + gap))))));
+}
+function Panel({ p, onChange, onDelete }) {
+  const [ed, setEd] = useState(null), [em, setEm] = useState(!1), set = (k, v) => onChange({ ...p, d: { ...p.d, [k]: { ...p.d[k] || {}, ...v } } }), T = total(p), C = conn(p), bulk = (on) => {
+    const d = {};
+    on ? allKeys(p).forEach((k) => d[k] = { ...p.d[k] || {}, on: !0 }) : Object.keys(p.d).forEach((k) => d[k] = { ...p.d[k], on: !1 }), onChange({ ...p, d: on ? { ...p.d, ...d } : d });
+  }, mk = (k, label, small) => /* @__PURE__ */ React.createElement(Port, { key: k, k, label, small, editMode: em, d: p.d, onToggle: () => set(k, { on: !(p.d[k] && p.d[k].on) }), onEdit: () => setEd(k) });
+  let body;
+  if (p.type === "copper") {
+    const rows = p.ports > 24 ? 2 : 1, per = Math.ceil(p.ports / rows), g = p.ports % 8 === 0 && p.ports % 6 !== 0 ? 8 : 6;
+    body = /* @__PURE__ */ React.createElement(Grid, { perRow: per, gap: g }, Array.from({ length: p.ports }, (_, i) => mk(i + 1, i + 1)));
+  } else p.type === "fiber" ? body = /* @__PURE__ */ React.createElement(Grid, { perRow: 24, gap: 6 }, Array.from({ length: p.ports }, (_, i) => mk(i + 1, i + 1))) : body = /* @__PURE__ */ React.createElement("div", { className: "ltr inline-grid gap-1.5", style: { gridTemplateColumns: `auto repeat(${p.cols.length},minmax(0,1fr))` } }, /* @__PURE__ */ React.createElement("div", null), p.cols.map((c, ci) => /* @__PURE__ */ React.createElement("div", { key: ci, className: "text-center text-sky-300 font-bold text-sm" }, c)), p.rows.map((r, ri) => /* @__PURE__ */ React.createElement(React.Fragment, { key: ri }, /* @__PURE__ */ React.createElement("div", { className: "text-sky-300 font-bold text-sm self-center pe-1" }, r), p.cols.map((c, ci) => /* @__PURE__ */ React.createElement("div", { key: ci, className: "bg-slate-800 border border-slate-500 rounded p-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 text-center mb-1" }, c, r), /* @__PURE__ */ React.createElement(Grid, { perRow: p.per <= 6 ? p.per : 12, gap: p.per <= 6 ? p.per : 6 }, Array.from({ length: p.per }, (_, n) => {
+    const k = `${ci}-${ri}-${n + 1}`;
+    return mk(k, n + 1, !0);
+  })))))));
+  const edNote = ed && (p.d[ed] || {}).note || "";
+  return /* @__PURE__ */ React.createElement("div", { className: "bg-slate-800 border border-slate-600 rounded-lg p-3 my-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2 mb-2" }, /* @__PURE__ */ React.createElement("b", null, p.name || "ללא שם"), /* @__PURE__ */ React.createElement("span", { className: "text-xs bg-slate-700 rounded px-2 py-0.5" }, TN[p.type]), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-400 ltr" }, "U", p.s, " · ", p.h, "U"), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-emerald-300 ms-auto" }, C, "/", T, " פורטים תפוסים - ", pct(C, T), "%"), /* @__PURE__ */ React.createElement("button", { className: `text-xs rounded px-2 py-1 ${em ? "bg-sky-600" : "bg-slate-700 hover:bg-slate-600"}`, onClick: () => setEm(!em) }, em ? "מצב הערות: פעיל" : "מצב הערות"), /* @__PURE__ */ React.createElement("button", { className: "text-xs bg-slate-700 hover:bg-slate-600 rounded px-2 py-1", onClick: () => bulk(!0) }, "סמן הכל כמחובר"), /* @__PURE__ */ React.createElement("button", { className: "text-xs bg-slate-700 hover:bg-slate-600 rounded px-2 py-1", onClick: () => bulk(!1) }, "אפס הכל"), /* @__PURE__ */ React.createElement("button", { className: "text-red-400 hover:text-red-300", onClick: () => confirm("למחוק את הפאנל?") && onDelete() }, /* @__PURE__ */ React.createElement(Ic, { n: "tr" }))), /* @__PURE__ */ React.createElement("div", { className: "overflow-x-auto pb-1 bg-slate-950/60 rounded p-2 border border-slate-700" }, body), ed && /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex flex-wrap gap-2 items-center bg-slate-900 p-2 rounded border border-sky-600" }, /* @__PURE__ */ React.createElement(Ic, { n: "ed" }), /* @__PURE__ */ React.createElement("span", { className: "text-xs ltr" }, String(ed)), /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      autoFocus: !0,
+      defaultValue: edNote,
+      placeholder: "יעד / מזהה כבל / הערה",
+      id: "noteinp",
+      onKeyDown: (e) => {
+        e.key === "Enter" && (set(ed, { note: e.target.value }), setEd(null)), e.key === "Escape" && setEd(null);
+      },
+      className: "flex-1 min-w-0 bg-slate-800 border border-slate-600 rounded px-2 py-1"
+    }
+  ), /* @__PURE__ */ React.createElement("button", { className: "bg-sky-600 rounded px-3 py-1 text-sm", onClick: () => {
+    set(ed, { note: document.getElementById("noteinp").value }), setEd(null);
+  } }, "שמור"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEd(null) }, /* @__PURE__ */ React.createElement(Ic, { n: "x" }))), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-slate-500 mt-1" }, "לחיצה = מחובר/פנוי · לחיצה ארוכה / ימנית / מצב הערות = יעד/הערה · נקודה כחולה = יש הערה"));
+}
+function allKeys(p) {
+  if (p.type !== "cassette") return Array.from({ length: p.ports }, (_, i) => i + 1);
+  const k = [];
+  return p.cols.forEach((c, ci) => p.rows.forEach((r, ri) => {
+    for (let n = 1; n <= p.per; n++) k.push(`${ci}-${ri}-${n}`);
+  })), k;
+}
+function AddModal({ rack, startU, onAdd, onClose }) {
+  const [f, setF] = useState({ name: "", s: startU || rack.h, h: 1, type: "copper", ports: 24, cols: "A,B,C", rows: "1,2,3,4", per: 4 }), [err, setErr] = useState(""), u = (k, v) => setF({ ...f, [k]: v }), submit = () => {
+    const s = +f.s, h = +f.h;
+    if (!(s >= 1 && s <= rack.h) || s - h + 1 < 1) return setErr("מיקום U מחוץ לטווח הארון");
+    const bad = rack.panels.find((p2) => s >= p2.s - p2.h + 1 && s - h + 1 <= p2.s);
+    if (bad) return setErr(`חפיפה עם "${bad.name || "פאנל"}" (U${bad.s}–U${bad.s - bad.h + 1})`);
+    const p = { id: uid(), name: f.name, s, h, type: f.type, d: {} };
+    if (f.type === "cassette") {
+      if (p.cols = f.cols.split(",").map((x) => x.trim()).filter(Boolean), p.rows = f.rows.split(",").map((x) => x.trim()).filter(Boolean), p.per = +f.per || 4, !p.cols.length || !p.rows.length) return setErr("יש להגדיר עמודות ושורות");
+    if (p.cols.length < 2 || p.cols.length > 6) return setErr("בכל שורה צריכות להיות בין 2 ל-6 קסטות");
+    } else
+      p.ports = Math.max(1, +f.ports || 24);
+    onAdd(p);
+  }, L = ({ t, children }) => /* @__PURE__ */ React.createElement("label", { className: "block text-sm mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-300" }, t), children), I = "w-full mt-1 bg-slate-900 border border-slate-600 rounded px-2 py-1.5";
+  return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-3", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "bg-slate-800 rounded-lg p-5 w-full max-w-md max-h-[90vh] overflow-auto border border-slate-600", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("h3", { className: "text-lg font-bold mb-3" }, "הוסף פאנל / מארז"), /* @__PURE__ */ React.createElement(L, { t: "שם / מזהה (אופציונלי)" }, /* @__PURE__ */ React.createElement("input", { className: I + " ltr", value: f.name, placeholder: "PP-A01-01", onChange: (e) => u("name", e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement(L, { t: "מיקום U התחלתי (עליון)" }, /* @__PURE__ */ React.createElement("input", { type: "number", className: I, value: f.s, onChange: (e) => u("s", e.target.value) }))), /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement(L, { t: "גובה (U)" }, /* @__PURE__ */ React.createElement("select", { className: I, value: f.h, onChange: (e) => u("h", e.target.value) }, [1, 2, 3, 4].map((x) => /* @__PURE__ */ React.createElement("option", { key: x }, x)))))), /* @__PURE__ */ React.createElement(L, { t: "סוג ציוד" }, /* @__PURE__ */ React.createElement("select", { className: I, value: f.type, onChange: (e) => u("type", e.target.value) }, Object.keys(TN).map((k) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, TN[k])))), f.type !== "cassette" ? /* @__PURE__ */ React.createElement(L, { t: "מספר פורטים" }, /* @__PURE__ */ React.createElement("input", { type: "number", className: I, value: f.ports, onChange: (e) => u("ports", e.target.value) }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 mt-1" }, (f.type === "copper" ? [12, 24, 48] : [12, 24, 48, 72, 96]).map((n) => /* @__PURE__ */ React.createElement("button", { key: n, className: "text-xs bg-slate-700 rounded px-2 py-0.5", onClick: () => u("ports", n) }, n)))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(L, { t: "שמות עמודות = קסטות בכל שורה, 2 עד 6 (מופרדים בפסיק)" }, /* @__PURE__ */ React.createElement("input", { className: I + " ltr", value: f.cols, onChange: (e) => u("cols", e.target.value) })), /* @__PURE__ */ React.createElement(L, { t: "שמות שורות (מופרדים בפסיק)" }, /* @__PURE__ */ React.createElement("input", { className: I + " ltr", value: f.rows, onChange: (e) => u("rows", e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-400 mb-2" }, f.cols.split(",").filter((x) => x.trim()).length, " עמודות × ", f.rows.split(",").filter((x) => x.trim()).length, " שורות"), /* @__PURE__ */ React.createElement(L, { t: "פורטים בקסטה" }, /* @__PURE__ */ React.createElement("select", { className: I, value: f.per, onChange: (e) => u("per", e.target.value) }, /* @__PURE__ */ React.createElement("option", null, "4"), /* @__PURE__ */ React.createElement("option", null, "12"), /* @__PURE__ */ React.createElement("option", null, "24")))), err && /* @__PURE__ */ React.createElement("div", { className: "text-red-400 text-sm mb-2" }, err), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 justify-end" }, /* @__PURE__ */ React.createElement("button", { className: "px-3 py-1.5 bg-slate-700 rounded", onClick: onClose }, "ביטול"), /* @__PURE__ */ React.createElement("button", { className: "px-4 py-1.5 bg-sky-600 rounded font-bold", onClick: submit }, "הוסף"))));
+}
+function exportXlsx(racks) {
+  const flat = [], sum = [], ro = [];
+  ALL.forEach((id) => {
+    const r = racks[id];
+    if (!r) return;
+    let tp = 0, tc = 0;
+    r.panels.slice().sort((a, b) => b.s - a.s).forEach((p) => {
+      const T = total(p), C = conn(p);
+      tp += T, tc += C, sum.push({ שורה: id[0], ארון: id, "מיקום (U)": p.s, "גובה (U)": p.h, "שם פאנל": p.name, "סוג ציוד": TL[p.type], 'סה"כ פורטים': T, "פורטים מחוברים": C, "פורטים פנויים": T - C, "ניצולת %": pct(C, T) }), allKeys(p).forEach((k) => {
+        const x = p.d[k] || {};
+        let cn = "", rn = "", n = k;
+        if (p.type === "cassette") {
+          const [ci, ri, pn] = String(k).split("-").map(Number);
+          cn = p.cols[ci], rn = p.rows[ri], n = pn;
+        }
+        flat.push({ "שורה (Row)": id[0], "ארון (Rack)": id, "מיקום (U)": p.s, "גובה (U)": p.h, "שם פאנל": p.name, "סוג ציוד": TL[p.type], "שם עמודה (לקסטות)": cn, "שם שורה (לקסטות)": rn, "מספר פורט": n, סטטוס: x.on ? "מחובר" : "פנוי", "יעד / הערה": x.note || "" });
+      });
+    }), ro.push({ שורה: id[0], ארון: id, "גובה ארון (U)": r.h, "מספר פאנלים": r.panels.length, 'סה"כ פורטים': tp, מחוברים: tc, פנויים: tp - tc, "ניצולת %": pct(tc, tp) });
+  }), ALL.forEach((id) => {
+    racks[id] || ro.push({ שורה: id[0], ארון: id, "גובה ארון (U)": 48, "מספר פאנלים": 0, 'סה"כ פורטים': 0, מחוברים: 0, פנויים: 0, "ניצולת %": 0 });
+  });
+  const wb = XLSX.utils.book_new();
+  [[flat, "פירוט פורטים מלא"], [sum, "סיכום פאנלים ומארזים"], [ro, "סיכום ארונות"]].forEach(([d, n]) => {
+    const ws = XLSX.utils.json_to_sheet(d);
+    ws["!cols"] = Object.keys(d[0] || { a: 1 }).map(() => ({ wch: 18 })), d.length && (ws["!autofilter"] = { ref: ws["!ref"] }), XLSX.utils.book_append_sheet(wb, ws, n);
+  }), wb.Workbook = { Views: [{ RTL: !0 }] }, XLSX.writeFile(wb, "dc-patch-export.xlsx");
+}
+function App() {
+  const [S, setS] = useState(load), [sel, setSel] = useState("A01"), [add, setAdd] = useState(null), fileRef = useRef();
+  useEffect(() => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(S));
+    } catch {
+    }
+  }, [S]);
+  const rack = S.racks[sel] || { h: 48, panels: [] }, setRack = (r) => setS({ ...S, racks: { ...S.racks, [sel]: r } }), rs = (id) => {
+    const r = S.racks[id];
+    return r ? r.panels.reduce((a, p) => ({ t: a.t + total(p), c: a.c + conn(p), n: a.n + 1 }), { t: 0, c: 0, n: 0 }) : { t: 0, c: 0, n: 0 };
+  }, st = useMemo(() => rs(sel), [S, sel]), byStart = {};
+  rack.panels.forEach((p) => byStart[p.s] = p);
+  const elev = [];
+  for (let u = rack.h; u >= 1; ) {
+    const p = byStart[u];
+    if (p)
+      elev.push(/* @__PURE__ */ React.createElement("div", { key: p.id, className: "flex gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "w-10 text-center text-xs text-slate-500 ltr pt-3" }, "U", p.s, p.h > 1 ? `–${p.s - p.h + 1}` : ""), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement(Panel, { p, onChange: (np) => setRack({ ...rack, panels: rack.panels.map((x) => x.id === p.id ? np : x) }), onDelete: () => setRack({ ...rack, panels: rack.panels.filter((x) => x.id !== p.id) }) })))), u -= p.h;
+    else {
+      const uu = u;
+      elev.push(/* @__PURE__ */ React.createElement("div", { key: "e" + u, onClick: () => setAdd(uu), title: "הוסף כאן", className: "flex gap-2 items-center cursor-pointer group" }, /* @__PURE__ */ React.createElement("div", { className: "w-10 text-center text-[10px] text-slate-600 ltr" }, "U", u), /* @__PURE__ */ React.createElement("div", { className: "flex-1 h-4 border border-dashed border-slate-700 rounded-sm group-hover:bg-slate-800 group-hover:border-sky-600" }))), u--;
+    }
+  }
+  const doImport = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const x = JSON.parse(r.result);
+        if (!x.racks) throw 0;
+        setS(x);
+      } catch {
+        alert("קובץ גיבוי לא תקין");
+      }
+    }, r.readAsText(f), e.target.value = "";
+  }, doJson = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(S)], { type: "application/json" })), a.download = "dc-backup.json", a.click();
+  }, B = "flex items-center gap-1 text-sm bg-slate-700 hover:bg-slate-600 rounded px-3 py-1.5";
+  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen" }, /* @__PURE__ */ React.createElement("header", { className: "bg-slate-900 border-b border-slate-700 p-3 flex flex-wrap gap-2 items-center sticky top-0 z-40" }, /* @__PURE__ */ React.createElement("h1", { className: "font-bold text-lg text-sky-400" }, "מנהל פאצ' פאנלים – חוות שרתים"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 ms-auto" }, /* @__PURE__ */ React.createElement("button", { className: B + " !bg-emerald-700 hover:!bg-emerald-600", onClick: () => exportXlsx(S.racks) }, /* @__PURE__ */ React.createElement(Ic, { n: "dl" }), "ייצוא לאקסל"), /* @__PURE__ */ React.createElement("button", { className: B, onClick: doJson }, /* @__PURE__ */ React.createElement(Ic, { n: "dl" }), "ייצוא גיבוי (JSON)"), /* @__PURE__ */ React.createElement("button", { className: B, onClick: () => fileRef.current.click() }, /* @__PURE__ */ React.createElement(Ic, { n: "ul" }), "שחזור מגיבוי (JSON)"), /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: ".json,application/json", className: "hidden", onChange: doImport }))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row" }, /* @__PURE__ */ React.createElement("aside", { className: "lg:w-80 shrink-0 p-3 bg-slate-900/60 lg:min-h-screen border-e border-slate-700" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-slate-400 mb-2" }, "מפת חוות שרתים"), Object.entries(ROWS).map(([r, n]) => /* @__PURE__ */ React.createElement("div", { key: r, className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs font-bold text-sky-300 mb-1" }, "שורה ", r), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-6 gap-1 ltr" }, Array.from({ length: n }, (_, i) => {
+    const id = rid(r, i + 1), s = rs(id), p = pct(s.c, s.t);
+    return /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: id,
+        onClick: () => setSel(id),
+        title: `${s.c}/${s.t} (${p}%)`,
+        className: `text-xs rounded py-1.5 border font-mono ${sel === id ? "bg-sky-600 border-sky-300" : s.n ? "bg-slate-700 border-slate-500" : "bg-slate-800 border-slate-700"} hover:border-sky-400`
+      },
+      id,
+      /* @__PURE__ */ React.createElement("div", { className: "h-1 mt-1 mx-1 bg-slate-900 rounded" }, /* @__PURE__ */ React.createElement("div", { className: `h-1 rounded ${p > 85 ? "bg-red-500" : p > 50 ? "bg-amber-400" : "bg-green-500"}`, style: { width: p + "%" } }))
+    );
+  }))))), /* @__PURE__ */ React.createElement("main", { className: "flex-1 p-3 min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-3 mb-3 bg-slate-800 border border-slate-600 rounded-lg p-3" }, /* @__PURE__ */ React.createElement("h2", { className: "text-xl font-bold ltr" }, sel), /* @__PURE__ */ React.createElement("label", { className: "text-sm" }, "גובה ארון: ", /* @__PURE__ */ React.createElement(
+    "select",
+    {
+      className: "bg-slate-900 border border-slate-600 rounded px-2 py-1 ltr",
+      value: rack.h,
+      onChange: (e) => {
+        const h = +e.target.value;
+        if (rack.panels.some((p) => p.s > h)) return alert("יש ציוד מעל הגובה החדש");
+        setRack({ ...rack, h });
+      }
+    },
+    [48, 42].map((h) => /* @__PURE__ */ React.createElement("option", { key: h, value: h }, h, "U"))
+  )), /* @__PURE__ */ React.createElement("span", { className: "text-emerald-300 text-sm" }, st.n, " פאנלים · ", st.c, "/", st.t, " פורטים תפוסים - ", pct(st.c, st.t), "%"), /* @__PURE__ */ React.createElement("button", { className: B + " !bg-sky-600 hover:!bg-sky-500 ms-auto", onClick: () => setAdd(0) }, /* @__PURE__ */ React.createElement(Ic, { n: "plus" }), "הוסף פאנל / מארז")), /* @__PURE__ */ React.createElement("div", { className: "space-y-1" }, elev))), add !== null && /* @__PURE__ */ React.createElement(AddModal, { rack, startU: add || void 0, onClose: () => setAdd(null), onAdd: (p) => {
+    setRack({ ...rack, panels: [...rack.panels, p] }), setAdd(null);
+  } }));
+}
+ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
+
+</script>
+</body>
+</html>
